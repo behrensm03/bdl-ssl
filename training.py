@@ -43,7 +43,7 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         model.train()
         train_loss, train_total = 0.0, 0
         for images, labels in tqdm(train_loader):
-            label_mask = labels != -1
+            label_mask = (labels != -1).squeeze()
             if label_mask.sum() == 0:
                 continue # skip batches with no labeled examples
 
@@ -76,11 +76,12 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
 
         summary = {
             "epoch": epoch+1,
-            "train_loss": train_loss/train_total,
+            "train_loss_labeled": train_loss/train_total,
             "val_loss": val_loss/val_total,
             "val_acc": val_correct/val_total,
             'train_total': train_total,
-            'val_total': val_total
+            'val_total': val_total,
+            'model_state': {k: v.clone() for k,v in model.state_dict().items()}
         }
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
@@ -158,7 +159,8 @@ def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, 
             "val_acc": val_correct/val_total,
             'train_total_labeled': train_total_labeled,
             'train_total_unlabeled': train_total_unlabeled,
-            'val_total': val_total
+            'val_total': val_total,
+            'model_state': {k: v.clone() for k,v in model.state_dict().items()}
         }
 
         history.append(summary)
