@@ -6,6 +6,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, roc_auc_score
+from sklearn.preprocessing import label_binarize
 
 # we can implement our own version of the torch Dataset that will handle our unlabeled examples
 class SSLDataset(data.Dataset):
@@ -113,7 +114,6 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
             inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
             targets_labeled = labels[label_mask]
 
-            # loss = torch.tensor(0.0, requires_grad=True)
             losses = []
             if inputs_labeled.size(0) != 0:
                 labeled_outputs = model(inputs_labeled)
@@ -195,3 +195,21 @@ def evaluate(model, test_loader):
             probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
             targets.append(labels.squeeze().cpu().numpy())
     return roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='macro')
+
+def evaluate_perclass(model, test_loader, n_classes=7):
+    model.eval()
+    probs, targets = [], []
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = model(images)
+            probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
+            targets.append(labels.squeeze().cpu().numpy())
+    probs = np.concatenate(probs)
+    targets = np.concatenate(targets)
+    
+    targets_binarized = label_binarize(targets, classes=np.arange(n_classes))
+    per_class_auc = [roc_auc_score(targets_binarized[:, i], probs[:, i]) for i in range(n_classes)]
+
+    matrix = confusion_matrix(targets, np.argmax(probs, axis=1), normalize='true')
+
+    return per_class_auc, matrix
