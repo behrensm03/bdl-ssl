@@ -42,3 +42,22 @@ def plot_auc_curve(history):
     plt.title('Validation AUC Curve')
     plt.legend()
     plt.show()
+
+def plot_perclass_auc(perclass_auc, class_names):
+    plt.figure(figsize=(6,4))
+    plt.bar(class_names, perclass_auc)
+    plt.xlabel('Class')
+    plt.ylabel('AUC (OvR)')
+    plt.title('Per-Class AUC')
+    plt.ylim(0, 1)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()
+
+def plot_per_class_recall(confusion_matrix, class_names):
+    plt.figure(figsize=(10,8))
+    sns.heatmap(confusion_matrix, annot=True, fmt='.2f', xticklabels=class_names, yticklabels=class_names, cmap='Blues')
+    plt.xlabel('Predicted Class')
+    plt.ylabel('True Class')
+    plt.title('Confusion Matrix (Recall)')
+    plt.show()
