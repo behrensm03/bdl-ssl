@@ -35,6 +35,13 @@ def get_semi_supervised_labels(dataset, unlabeled_rate, seed=42, n_classes=7):
         unlabeled_indices = np.random.choice(class_indices, size=num_unlabeled, replace=False)
         # set the labels of those indices to -1
         semi_supervised_labels[unlabeled_indices] = -1
+
+    print(f'Unlabeled rate: {unlabeled_rate} | Total examples: {len(labels)} | Labeled examples: {(semi_supervised_labels != -1).sum()} | Unlabeled examples: {(semi_supervised_labels == -1).sum()}')
+    for c in range(n_classes):
+        total = (labels == c).sum()
+        labeled = (semi_supervised_labels == c).sum()
+        unlabeled = total - labeled
+        print(f'Class {c}: {labeled}/{total} labeled, {unlabeled} unlabeled')
     return semi_supervised_labels
 
 def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, num_epochs):
@@ -105,7 +112,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
     history = []
     for epoch in range(num_epochs):
         model.train()
-        train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled = 0.0, 0.0, 0, 0
+        train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen = 0.0, 0.0, 0, 0, 0
         # First the training loop
         for images, labels in tqdm(train_loader):
             # separate the labeled and unlabeled examples
@@ -124,6 +131,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                 train_total_labeled += inputs_labeled.size(0)
 
             if inputs_unlabeled.size(0) != 0:
+                train_total_unlabeled_seen += inputs_unlabeled.size(0)
                 unlabeled_outputs = model(inputs_unlabeled)
                 # now use the threshold to generate pseudo-labels from the unlabeled outputs
                 probs_unlabeled = torch.softmax(unlabeled_outputs, dim=1)
@@ -173,6 +181,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
             "val_auc": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             'train_total_labeled': train_total_labeled,
             'train_total_unlabeled': train_total_unlabeled,
+            'train_total_unlabeled_seen': train_total_unlabeled_seen,
             'val_total': val_total,
             'model_state': {k: v.clone() for k,v in model.state_dict().items()},
         }
@@ -185,6 +194,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                 f"Val Acc: {val_correct/val_total:.4f} | "
                 f"Val AUC: {summary['val_auc']:.4f}")
 
+    return history
 
 def evaluate(model, test_loader):
     model.eval()
