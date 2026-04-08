@@ -4,7 +4,7 @@ import seaborn as sns
 sns.set_style("whitegrid")
 sns.set_context("notebook", font_scale=1.25)
 
-def plot_loss_curves(history, use_unlabeled=False):
+def plot_loss_curves(history, unlabeled_rate=0, use_unlabeled=False):
     # History is a list of dictionaries, where each dictionary contains the metrics for one epoch
     epochs = [h['epoch'] for h in history]
     train_loss_labeled = [h['train_loss_labeled'] for h in history]
@@ -17,29 +17,29 @@ def plot_loss_curves(history, use_unlabeled=False):
     plt.plot(epochs, val_loss, label='Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title('Training and Validation Loss Curves')
+    plt.title(f'Training and Validation Loss Curves (Unlabeled Rate: {unlabeled_rate})')
     plt.legend()
     plt.show()
 
-def plot_accuracy_curve(history):
+def plot_accuracy_curve(history, unlabeled_rate=0):
     epochs = [h['epoch'] for h in history]
     val_acc = [h['val_acc'] for h in history]
     plt.figure(figsize=(6,4))
     plt.plot(epochs, val_acc, label='Validation Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
-    plt.title('Validation Accuracy Curve')
+    plt.title(f'Validation Accuracy Curve (Unlabeled Rate: {unlabeled_rate})')
     plt.legend()
     plt.show()
 
-def plot_auc_curve(history):
+def plot_auc_curve(history, unlabeled_rate=0):
     epochs = [h['epoch'] for h in history]
     val_auc = [h['val_auc'] for h in history]
     plt.figure(figsize=(6,4))
     plt.plot(epochs, val_auc, label='Validation AUC')
     plt.xlabel('Epoch')
     plt.ylabel('AUC (macro OvR)')
-    plt.title('Validation AUC Curve')
+    plt.title(f'Validation AUC Curve (Unlabeled Rate: {unlabeled_rate})')
     plt.legend()
     plt.show()
 
@@ -60,4 +60,14 @@ def plot_per_class_recall(confusion_matrix, class_names):
     plt.xlabel('Predicted Class')
     plt.ylabel('True Class')
     plt.title('Confusion Matrix (Recall)')
+    plt.show()
+
+def plot_percent_unlabeled_used(history):
+    epochs = [h['epoch'] for h in history]
+    percent_unlabeled_used = [h['train_total_unlabeled']/h['train_total_unlabeled_seen']*100 if h['train_total_unlabeled_seen'] > 0 else 0 for h in history]
+    plt.figure(figsize=(6,4))
+    plt.plot(epochs, percent_unlabeled_used, label='Percent Unlabeled Used')
+    plt.xlabel('Epoch')
+    plt.ylabel('Percent')
+    plt.title('Percent of Unlabeled Examples Used Over Time')
     plt.show()
