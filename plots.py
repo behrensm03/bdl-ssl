@@ -32,3 +32,13 @@ def plot_accuracy_curve(history):
     plt.legend()
     plt.show()
 
+def plot_auc_curve(history):
+    epochs = [h['epoch'] for h in history]
+    val_auc = [h['val_auc'] for h in history]
+    plt.figure(figsize=(6,4))
+    plt.plot(epochs, val_auc, label='Validation AUC')
+    plt.xlabel('Epoch')
+    plt.ylabel('AUC (macro OvR)')
+    plt.title('Validation AUC Curve')
+    plt.legend()
+    plt.show()

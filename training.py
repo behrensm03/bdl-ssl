@@ -5,6 +5,7 @@ import torch.optim as optim
 import torch.utils.data as data
 import torchvision.transforms as transforms
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix, roc_auc_score
 
 # we can implement our own version of the torch Dataset that will handle our unlabeled examples
 class SSLDataset(data.Dataset):
@@ -63,6 +64,7 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         # evaluate on validation set
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
+        val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in val_loader:
                 outputs = model(images)
@@ -74,11 +76,15 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
                 val_total += targets.size(0)
                 val_correct += (predicted == targets).sum().item()
 
+                val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
+                val_targets.append(targets.cpu().numpy())
+
         summary = {
             "epoch": epoch+1,
             "train_loss_labeled": train_loss/train_total,
             "val_loss": val_loss/val_total,
             "val_acc": val_correct/val_total,
+            "val_auc": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             'train_total': train_total,
             'val_total': val_total,
             'model_state': {k: v.clone() for k,v in model.state_dict().items()}
@@ -87,13 +93,14 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         print(f"Epoch {epoch+1}/{num_epochs} | "
               f"Train Loss: {train_loss/train_total:.4f} | "
               f"Val Loss: {val_loss/val_total:.4f} | "
-              f"Val Acc: {val_correct/val_total:.4f}")
+              f"Val Acc: {val_correct/val_total:.4f} | "
+              f"Val AUC: {summary['val_auc']:.4f}")
         
     return history
 
 
-def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5):
-    # This is the training loop utilizing all examples, with standard soft pseudo-labeling and threshold
+def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5):
+    # This is the training loop utilizing all examples, with threshold-based one-hot pseudo labeling for the unlabeled examples
     history = []
     for epoch in range(num_epochs):
         model.train()
@@ -106,12 +113,13 @@ def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, 
             inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
             targets_labeled = labels[label_mask]
 
-            loss = torch.tensor(0.0, requires_grad=True)
+            # loss = torch.tensor(0.0, requires_grad=True)
+            losses = []
             if inputs_labeled.size(0) != 0:
                 labeled_outputs = model(inputs_labeled)
                 targets_labeled = targets_labeled.squeeze().long()
                 loss_labeled = criterion(labeled_outputs, targets_labeled)
-                loss = loss + loss_labeled
+                losses.append(loss_labeled)
                 train_loss_labeled += loss_labeled.item() * inputs_labeled.size(0)
                 train_total_labeled += inputs_labeled.size(0)
 
@@ -128,18 +136,19 @@ def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, 
                     pseudo_labels_keep = pseudo_labels[confident_mask]
                     loss_unlabeled = criterion(unlabeled_outputs_keep, pseudo_labels_keep)
                     # combine the losses in a weighted manner
-                    loss = loss + alpha * loss_unlabeled
+                    losses.append(alpha * loss_unlabeled)
                     train_loss_unlabeled += loss_unlabeled.item() * unlabeled_outputs_keep.size(0)
                     train_total_unlabeled += unlabeled_outputs_keep.size(0)
 
-            if loss.item() > 0:
+            if len(losses) > 0:
                 optimizer.zero_grad()
-                loss.backward()
+                sum(losses).backward()
                 optimizer.step()
 
         # Then the validation loop
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
+        val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in val_loader:
                 # We only have labeled examples in validation and test data
@@ -151,16 +160,21 @@ def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, 
                 val_total += targets.size(0)
                 val_correct += (predictions == targets).sum().item()
 
+                # store predictions and targets for auc
+                val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
+                val_targets.append(targets.cpu().numpy())
+
         summary = {
             "epoch": epoch+1,
             "train_loss_labeled": train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0,
             "train_loss_unlabeled": train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
             "val_loss": val_loss/val_total,
             "val_acc": val_correct/val_total,
+            "val_auc": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             'train_total_labeled': train_total_labeled,
             'train_total_unlabeled': train_total_unlabeled,
             'val_total': val_total,
-            'model_state': {k: v.clone() for k,v in model.state_dict().items()}
+            'model_state': {k: v.clone() for k,v in model.state_dict().items()},
         }
 
         history.append(summary)
@@ -168,5 +182,16 @@ def train_loop_unlabeled(model, train_loader, val_loader, criterion, optimizer, 
                 f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
                 f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
                 f"Val Loss: {val_loss/val_total:.4f} | "
-                f"Val Acc: {val_correct/val_total:.4f}")
+                f"Val Acc: {val_correct/val_total:.4f} | "
+                f"Val AUC: {summary['val_auc']:.4f}")
 
+
+def evaluate(model, test_loader):
+    model.eval()
+    probs, targets = [], []
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = model(images)
+            probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
+            targets.append(labels.squeeze().cpu().numpy())
+    return roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='macro')
