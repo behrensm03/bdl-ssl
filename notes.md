@@ -7,3 +7,10 @@
 - Should we normalize loss terms by the number of labeled / unlabeled examples?
     - motivation: suppose we have 5000 unlabeled examples and 500 labeled examples. even though alpha tunes them, with a small alpha we could still have unlabeled loss dominate that term such that the labeled loss isn't contributing much.
 - should we look at out of distribution images / see confidence on those?
+
+
+
+- tune L2 normalization (weight decay in adam, i believe), and learning rates
+    - could be different for different methods because of labeled vs unlabeled set size
+- evaluate different thresholds (it would be nice to say which sort of thresholds the soft does better on if any)
+- try a quick experiment comparing some small warmup vs not warming up and see what happens
