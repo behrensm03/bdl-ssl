@@ -106,7 +106,6 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         
     return history
 
-
 def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5):
     # This is the training loop utilizing all examples, with threshold-based one-hot pseudo labeling for the unlabeled examples
     history = []

@@ -27,6 +27,9 @@ class VariationalLinearLayer(nn.Module):
         return
 
     def forward(self, x):
+        # This samples a new set of weights and biases from the current variational distribution each time we call forward
+        # So to run S network samples on an input batch, we just call forward S times
+        # Importantly, two different batches will use different samples of weights.
         sigma_w = torch.nn.functional.softplus(self.r_w)
         sigma_bias = torch.nn.functional.softplus(self.r_bias)
 
@@ -51,8 +54,59 @@ class VariationalLinearLayer(nn.Module):
 
         return (kl_w + kl_bias) * -1.0
 
+
+class VariationalConv2DLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, prior_mean=0.0, prior_var=1.0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+
+        self.prior_mean = prior_mean
+        self.prior_var = prior_var
+
+        # Initialize variatonal parameters for our layer's weights        
+        self.mu_w = nn.Parameter(torch.zeros(out_channels, in_channels, kernel_size, kernel_size)) # mean values, initialized randomly
+        nn.init.kaiming_normal_(self.mu_w)
+        self.mu_bias = nn.Parameter(torch.zeros(out_channels))
+
+        rho_init = -2.25 # this makes it so that the initial sigma is around 0.1, which is a common choice for initialization
+        self.r_w = nn.Parameter(torch.full((out_channels, in_channels, kernel_size, kernel_size), rho_init)) # unconstrained standard deviation initialized randomly, later we will need to call softplus to get sigma
+        self.r_bias = nn.Parameter(torch.full((out_channels,), rho_init))
+        return
+
+    def forward(self, x):
+        sigma_w = torch.nn.functional.softplus(self.r_w)
+        sigma_bias = torch.nn.functional.softplus(self.r_bias)
+
+        epsilon_w = torch.randn_like(self.mu_w)
+        epsilon_bias = torch.randn_like(self.mu_bias)
+
+        w = self.mu_w + sigma_w * epsilon_w
+        bias = self.mu_bias + sigma_bias * epsilon_bias
+
+        return torch.nn.functional.conv2d(x, w, bias, stride=self.stride, padding=self.padding)
+
+    def kl_divergence(self):
+        # for 2 gaussians this has closed form solution
+        # see kingma and welling appendix B for formula:
+        # -KL(q || p) = 0.5 * sum [ 1 + log(sigma_j^2) - mu_j^2 - sigma_j^2 ]
+
+        sigma_w = torch.nn.functional.softplus(self.r_w)
+        sigma_bias = torch.nn.functional.softplus(self.r_bias)
+
+        kl_w = 0.5 * torch.sum(1 + torch.log(sigma_w**2) - self.mu_w**2 - sigma_w**2)
+        kl_bias = 0.5 * torch.sum(1 + torch.log(sigma_bias**2) - self.mu_bias**2 - sigma_bias**2)
+
+        return (kl_w + kl_bias) * -1.0
+    
+class VariationalCNN(nn.Module):
     def __init__(self, in_channels, num_classes):
         super(VariationalCNN, self).__init__()
+
+        self.num_classes = num_classes
 
         self.layer1 = nn.Sequential(
             VariationalConv2DLayer(in_channels, 16, 3),
@@ -106,3 +160,12 @@ class VariationalLinearLayer(nn.Module):
                 if isinstance(module, VariationalConv2DLayer) or isinstance(module, VariationalLinearLayer):
                     kl += module.kl_divergence()
         return kl
+    
+    def average_probs(self, x, num_samples=10):
+        # Run the input through the network S times, each time sampling a new set of weights
+        # Then, compute the average of the S output prediction probabilities to get an average vector
+        predictions = torch.zeros(num_samples, x.size(0), self.num_classes).to(x.device)
+        for i in range(num_samples):
+            predictions[i] = torch.nn.functional.softmax(self.forward(x), dim=1)
+
+        return torch.mean(predictions, dim=0)

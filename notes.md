@@ -14,3 +14,4 @@
     - could be different for different methods because of labeled vs unlabeled set size
 - evaluate different thresholds (it would be nice to say which sort of thresholds the soft does better on if any)
 - try a quick experiment comparing some small warmup vs not warming up and see what happens
+- should we scale / reweight the KL loss term? seems like it might dominate
