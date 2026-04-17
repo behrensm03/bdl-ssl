@@ -27,6 +27,9 @@ class VariationalLinearLayer(nn.Module):
         return
 
     def forward(self, x):
+        # This samples a new set of weights and biases from the current variational distribution each time we call forward
+        # So to run S network samples on an input batch, we just call forward S times
+        # Importantly, two different batches will use different samples of weights.
         sigma_w = torch.nn.functional.softplus(self.r_w)
         sigma_bias = torch.nn.functional.softplus(self.r_bias)
 
@@ -50,3 +53,35 @@ class VariationalLinearLayer(nn.Module):
         kl_bias = 0.5 * torch.sum(1 + torch.log(sigma_bias**2) - self.mu_bias**2 - sigma_bias**2)
 
         return (kl_w + kl_bias) * -1.0
+
+
+class VariationalConv2DLayer(nn.Module):
+    # shoud follow similar logic to above but use Conv2d instead of linear
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, prior_mean=0.0, prior_var=1.0):
+        super().__init__()
+        pass
+
+    def forward(self, x):
+        pass
+
+    def kl_divergence(self):
+        pass
+    
+class VariationalCNN(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super(VariationalCNN, self).__init__()
+        # implement layers here
+        pass
+        
+    def forward(self, x):
+        # sample a new set of weights and run through each layer
+        pass
+    
+    def kl_divergence(self):
+        # accumulate the kl divergence of each layer
+        pass
+    
+    def average_probs(self, x, num_samples=10):
+        # Run the input through the network S times, each time sampling a new set of weights
+        # Then, compute the average of the S output prediction probabilities to get an average vector
+        pass
