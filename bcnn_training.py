@@ -11,15 +11,16 @@ from sklearn.preprocessing import label_binarize
 
 # TODO: implement the device moving cpu/gpu
 
-def elbo_loss(model, outputs, targets, criterion, num_batches):
+def elbo_loss(model, outputs, targets, criterion, num_batches, beta=1.0):
     # criterion is nn.crossentropyloss
     nll = criterion(outputs, targets)
-    kl = model.kl_divergence()
     # divide kl bythe number of batches and add it to NLL to compute negative elbo
-    loss = nll + (kl / num_batches)
+    kl = beta * model.kl_divergence() / num_batches
+    # TODO: could try changing beta to divide by model num params
+    loss = nll + kl
     return loss, nll.detach(), kl.detach()
 
-def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, num_samples=10):
+def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, beta=1.0, num_samples=10):
     # At each epoch, we need to compute the ELBO
     # First, we need to figure out the set U of onehot vectors from pseudo labels
     # So, run the unlabeled examples through the network S times, and then get the average probability vector for each unlabeled example
@@ -30,6 +31,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
     # We may need to scale the KL divergence term if it dominates.
 
     history = []
+    print(f"beta:{beta}")
     for epoch in range(num_epochs):
         model.train()
         train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
@@ -45,7 +47,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
             if inputs_labeled.size(0) > 0:
                 labeled_outputs = model(inputs_labeled)
                 targets_labeled = targets_labeled.squeeze().long()
-                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, len(train_loader))
+                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, len(train_loader), beta=beta)
                 losses.append(loss)
                 train_loss_labeled += nll.item() * inputs_labeled.size(0)
                 train_kl_total += kl.item()
@@ -94,14 +96,18 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
 
                 val_total += images.size(0)
 
+                nll_val = -torch.log(mean_probs[torch.arange(len(targets)), targets] + 1e-8).mean()
+                val_loss += nll_val.item() * images.size(0)
+
                 # store predictions and targets for auc
                 val_probs.append(mean_probs.cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
 
         summary = {
             "epoch": epoch+1,
-            "train_loss_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
+            "train_nll_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
             "train_loss_unlabeled": train_loss_unlabeled / train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
+            "val_loss": val_loss / val_total if val_total > 0 else 0.0,
             "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
             "train_total_labeled": train_total_labeled,
@@ -110,14 +116,17 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
             "val_total": val_total,
             "model_state": {k: v.clone() for k,v in model.state_dict().items()},
             "train_kl_total": train_kl_total,
+            "train_kl_avg": train_kl_total / len(train_loader) if len(train_loader) > 0 else 0.0,
         }
 
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
-                f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
-                f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
-                f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
-                f"Val AUC Global: {summary['val_auc_global']:.4f}")
+            f"Train NLL: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
+            f"Train KL (avg/batch): {train_kl_total/len(train_loader):.4f} | "
+            f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
+            f"Val Loss: {summary['val_loss']:.4f} | "
+            f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
+            f"Val AUC Global: {summary['val_auc_global']:.4f}")
         
     return history
 
@@ -125,6 +134,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
 def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, alpha=0.5, num_samples=10):
     # similar to hard pl loop but using the average prob vector as the pseudo label
     history = []
+    # TODO: beta
     for epoch in range(num_epochs):
         model.train()
         train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
@@ -186,7 +196,7 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
 
         summary = {
             "epoch": epoch+1,
-            "train_loss_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
+            "train_nll_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
             "train_loss_unlabeled": train_loss_unlabeled / train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
             "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
@@ -196,14 +206,16 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
             "val_total": val_total,
             "model_state": {k: v.clone() for k,v in model.state_dict().items()},
             "train_kl_total": train_kl_total,
+            "train_kl_avg": train_kl_total / len(train_loader) if len(train_loader) > 0 else 0.0,
         }
 
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
-                f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
-                f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
-                f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
-                f"Val AUC Global: {summary['val_auc_global']:.4f}")
+            f"Train NLL: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
+            f"Train KL (avg/batch): {train_kl_total/len(train_loader):.4f} | "
+            f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
+            f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
+            f"Val AUC Global: {summary['val_auc_global']:.4f}")
         
     return history
 
@@ -229,7 +241,9 @@ def evaluate_bayesian(model, test_loader, device, mc_samples=20, n_classes=7):
     targets_binarized = label_binarize(targets, classes=np.arange(n_classes))
     per_class_auc = [roc_auc_score(targets_binarized[: , i], probs[:, i]) for i in range(n_classes)]
 
-    matrix = confusion_matrix(targets, np.argmax(probs, axis=1), normalize='true')
+    preds = np.argmax(probs, axis=1)
+    print('preds:', preds)
+    matrix = confusion_matrix(targets, preds, normalize='true')
 
     return {
         "macro_auc": macro_auc,

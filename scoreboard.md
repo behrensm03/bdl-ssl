@@ -3,7 +3,7 @@
 ### Hyperparameters, fixed across all runs
 - Architecture: 5 layer CNN (see cnn.py)
 - Optimizer: Adam
-- Epochs: 20 with early stopping, selected by validation AUC
+- Epochs: 20 with early stopping, selected by validation mAUC
 - Batch size: 128
 - Loss: cross entropy
 - Alpha (weight of unlabeled loss in SSL implementation): 0.5
