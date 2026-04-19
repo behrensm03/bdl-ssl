@@ -21,22 +21,11 @@ def plot_loss_curves(history, unlabeled_rate=0, use_unlabeled=False):
     plt.legend()
     plt.show()
 
-def plot_accuracy_curve(history, unlabeled_rate=0):
-    epochs = [h['epoch'] for h in history]
-    val_acc = [h['val_acc'] for h in history]
-    plt.figure(figsize=(6,4))
-    plt.plot(epochs, val_acc, label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.title(f'Validation Accuracy Curve (Unlabeled Rate: {unlabeled_rate})')
-    plt.legend()
-    plt.show()
-
 def plot_auc_curve(history, unlabeled_rate=0):
     epochs = [h['epoch'] for h in history]
-    val_auc = [h['val_auc'] for h in history]
+    val_auc_macro = [h['val_auc_macro'] for h in history]
     plt.figure(figsize=(6,4))
-    plt.plot(epochs, val_auc, label='Validation AUC')
+    plt.plot(epochs, val_auc_macro, label='Validation AUC')
     plt.xlabel('Epoch')
     plt.ylabel('AUC (macro OvR)')
     plt.title(f'Validation AUC Curve (Unlabeled Rate: {unlabeled_rate})')
@@ -46,6 +35,8 @@ def plot_auc_curve(history, unlabeled_rate=0):
 def plot_perclass_auc(perclass_auc, class_names):
     plt.figure(figsize=(6,4))
     plt.bar(class_names, perclass_auc)
+    for i, v in enumerate(perclass_auc):
+        plt.text(i, v + 0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=9)
     plt.xlabel('Class')
     plt.ylabel('AUC (OvR)')
     plt.title('Per-Class AUC')
