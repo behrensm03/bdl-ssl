@@ -71,7 +71,7 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         
         # evaluate on validation set
         model.eval()
-        val_loss, val_correct, val_total = 0.0, 0, 0
+        val_loss, val_total = 0.0, 0
         val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in val_loader:
@@ -80,9 +80,7 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
                 loss = criterion(outputs, targets)
                 val_loss += loss.item() * images.size(0)
 
-                _, predicted = torch.max(outputs.data, 1)
                 val_total += targets.size(0)
-                val_correct += (predicted == targets).sum().item()
 
                 val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
@@ -91,8 +89,8 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
             "epoch": epoch+1,
             "train_loss_labeled": train_loss/train_total,
             "val_loss": val_loss/val_total,
-            "val_acc": val_correct/val_total,
-            "val_auc": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
+            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
+            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
             'train_total': train_total,
             'val_total': val_total,
             'model_state': {k: v.clone() for k,v in model.state_dict().items()}
@@ -101,8 +99,8 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
         print(f"Epoch {epoch+1}/{num_epochs} | "
               f"Train Loss: {train_loss/train_total:.4f} | "
               f"Val Loss: {val_loss/val_total:.4f} | "
-              f"Val Acc: {val_correct/val_total:.4f} | "
-              f"Val AUC: {summary['val_auc']:.4f}")
+              f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
+              f"Val AUC Global: {summary['val_auc_global']:.4f}")
         
     return history
 
@@ -154,7 +152,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
 
         # Then the validation loop
         model.eval()
-        val_loss, val_correct, val_total = 0.0, 0, 0
+        val_loss, val_total = 0.0, 0
         val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in val_loader:
@@ -165,7 +163,6 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                 val_loss += loss.item() * images.size(0)
                 _, predictions = torch.max(outputs.data, 1)
                 val_total += targets.size(0)
-                val_correct += (predictions == targets).sum().item()
 
                 # store predictions and targets for auc
                 val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
@@ -176,8 +173,8 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
             "train_loss_labeled": train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0,
             "train_loss_unlabeled": train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
             "val_loss": val_loss/val_total,
-            "val_acc": val_correct/val_total,
-            "val_auc": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
+            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
+            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
             'train_total_labeled': train_total_labeled,
             'train_total_unlabeled': train_total_unlabeled,
             'train_total_unlabeled_seen': train_total_unlabeled_seen,
@@ -190,8 +187,8 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                 f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
                 f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
                 f"Val Loss: {val_loss/val_total:.4f} | "
-                f"Val Acc: {val_correct/val_total:.4f} | "
-                f"Val AUC: {summary['val_auc']:.4f}")
+                f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
+                f"Val AUC Global: {summary['val_auc_global']:.4f}")
 
     return history
 
@@ -203,7 +200,7 @@ def evaluate(model, test_loader):
             outputs = model(images)
             probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
             targets.append(labels.squeeze().cpu().numpy())
-    return roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='macro')
+    return roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='macro'), roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='micro')
 
 def evaluate_perclass(model, test_loader, n_classes=7):
     model.eval()
