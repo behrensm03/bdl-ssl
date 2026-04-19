@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data as data
 import torchvision.transforms as transforms
@@ -120,6 +121,91 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
         
     return history
 
+
+def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, alpha=0.5, num_samples=10):
+    # similar to hard pl loop but using the average prob vector as the pseudo label
+    history = []
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
+
+        for images, labels in tqdm(train_loader):
+            label_mask = labels != -1
+            unlabeled_mask = labels == -1
+            inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
+            targets_labeled = labels[label_mask]
+
+            losses = []
+            if inputs_labeled.size(0) > 0:
+                labeled_outputs = model(inputs_labeled)
+                targets_labeled = targets_labeled.squeeze().long()
+                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, len(train_loader))
+                losses.append(loss)
+                train_loss_labeled += nll.item() * inputs_labeled.size(0)
+                train_kl_total += kl.item()
+                train_total_labeled += inputs_labeled.size(0)
+
+            if inputs_unlabeled.size(0) != 0:
+                train_total_unlabeled_seen += inputs_unlabeled.size(0)
+                with torch.no_grad():
+                    # should this be in eval mode?
+                    pseudo_labels = model.average_probs(inputs_unlabeled, num_samples=num_samples)
+                
+                # avg probs are the pseudo labels now
+                unlabeled_outputs = model(inputs_unlabeled)
+                # apparently nn.CrossEntropyLoss won't take soft pseudo labels so we directly use F.cross_entropy
+                loss_unlabeled = F.cross_entropy(unlabeled_outputs, pseudo_labels)
+                losses.append(alpha * loss_unlabeled)
+                train_loss_unlabeled += loss_unlabeled.item() * inputs_unlabeled.size(0)
+                train_total_unlabeled += inputs_unlabeled.size(0)
+
+            if len(losses) > 0:
+                optimizer.zero_grad()
+                sum(losses).backward()
+                optimizer.step()
+
+        model.eval()
+        val_loss, val_total = 0.0, 0
+        val_probs, val_targets = [], []
+        with torch.no_grad():
+            for images, labels in tqdm(val_loader):
+                targets = labels.squeeze().long()
+
+                mc_probs = []
+                for _ in range(num_samples):
+                    outputs = model(images)
+                    probs = torch.softmax(outputs, dim=1)
+                    mc_probs.append(probs)
+
+                mean_probs = torch.stack(mc_probs, dim=0).mean(dim=0)
+
+                val_total += images.size(0)
+
+                val_probs.append(mean_probs.cpu().numpy())
+                val_targets.append(targets.cpu().numpy())
+
+        summary = {
+            "epoch": epoch+1,
+            "train_loss_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
+            "train_loss_unlabeled": train_loss_unlabeled / train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
+            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
+            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
+            "train_total_labeled": train_total_labeled,
+            "train_total_unlabeled": train_total_unlabeled,
+            "train_total_unlabeled_seen": train_total_unlabeled_seen,
+            "val_total": val_total,
+            "model_state": {k: v.clone() for k,v in model.state_dict().items()},
+            "train_kl_total": train_kl_total,
+        }
+
+        history.append(summary)
+        print(f"Epoch {epoch+1}/{num_epochs} | "
+                f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
+                f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
+                f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
+                f"Val AUC Global: {summary['val_auc_global']:.4f}")
+        
+    return history
 
 
 @torch.no_grad()
