@@ -11,12 +11,12 @@ from sklearn.preprocessing import label_binarize
 
 # TODO: implement the device moving cpu/gpu
 
-def elbo_loss(model, outputs, targets, criterion, num_batches, beta=1.0):
+def elbo_loss(model, outputs, targets, criterion, beta=1.0):
     # criterion is nn.crossentropyloss
     nll = criterion(outputs, targets)
     # divide kl bythe number of batches and add it to NLL to compute negative elbo
-    kl = beta * model.kl_divergence() / num_batches
-    # TODO: could try changing beta to divide by model num params
+    num_params = sum(p.numel() for p in model.parameters())
+    kl = beta * model.kl_divergence() / num_params
     loss = nll + kl
     return loss, nll.detach(), kl.detach()
 
@@ -38,8 +38,8 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
         # First, the training loop
         for images, labels in tqdm(train_loader):
             # separate the labeled and unlabeled examples
-            label_mask = labels != -1
-            unlabeled_mask = labels == -1
+            label_mask = (labels != -1).squeeze()
+            unlabeled_mask = (labels == -1).squeeze()
             inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
             targets_labeled = labels[label_mask]
 
@@ -47,7 +47,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
             if inputs_labeled.size(0) > 0:
                 labeled_outputs = model(inputs_labeled)
                 targets_labeled = targets_labeled.squeeze().long()
-                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, len(train_loader), beta=beta)
+                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, beta=beta)
                 losses.append(loss)
                 train_loss_labeled += nll.item() * inputs_labeled.size(0)
                 train_kl_total += kl.item()
@@ -140,8 +140,8 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
         train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
 
         for images, labels in tqdm(train_loader):
-            label_mask = labels != -1
-            unlabeled_mask = labels == -1
+            label_mask = (labels != -1).squeeze()
+            unlabeled_mask = (labels == -1).squeeze()
             inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
             targets_labeled = labels[label_mask]
 
