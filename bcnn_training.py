@@ -124,6 +124,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
             f"Train NLL: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
             f"Train KL (avg/batch): {train_kl_total/len(train_loader):.4f} | "
             f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
+            f"Unlabeled Examples Used: {train_total_unlabeled}/{train_total_unlabeled_seen} | "
             f"Val Loss: {summary['val_loss']:.4f} | "
             f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
             f"Val AUC Global: {summary['val_auc_global']:.4f}")
