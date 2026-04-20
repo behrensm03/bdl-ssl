@@ -136,8 +136,10 @@ class VariationalCNN(nn.Module):
         
         self.fc = nn.Sequential(
             VariationalLinearLayer(64 * 4 * 4, 128, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
+            nn.LayerNorm(128),
             nn.ReLU(),
             VariationalLinearLayer(128, 128, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
+            nn.LayerNorm(128),
             nn.ReLU(),
             VariationalLinearLayer(128, num_classes, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init))
         
