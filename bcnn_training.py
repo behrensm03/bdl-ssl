@@ -31,7 +31,6 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
     # We may need to scale the KL divergence term if it dominates.
 
     history = []
-    print(f"beta:{beta}")
     for epoch in range(num_epochs):
         model.train()
         train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
@@ -132,10 +131,9 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
     return history
 
 
-def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, alpha=0.5, num_samples=10):
+def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, alpha=0.5, beta=1.0, num_samples=10):
     # similar to hard pl loop but using the average prob vector as the pseudo label
     history = []
-    # TODO: beta
     for epoch in range(num_epochs):
         model.train()
         train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
@@ -150,7 +148,7 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
             if inputs_labeled.size(0) > 0:
                 labeled_outputs = model(inputs_labeled)
                 targets_labeled = targets_labeled.squeeze().long()
-                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, len(train_loader))
+                loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, beta=beta)
                 losses.append(loss)
                 train_loss_labeled += nll.item() * inputs_labeled.size(0)
                 train_kl_total += kl.item()
@@ -192,6 +190,9 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
 
                 val_total += images.size(0)
 
+                nll_val = -torch.log(mean_probs[torch.arange(len(targets)), targets] + 1e-8).mean()
+                val_loss += nll_val.item() * images.size(0)
+
                 val_probs.append(mean_probs.cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
 
@@ -199,6 +200,7 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
             "epoch": epoch+1,
             "train_nll_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
             "train_loss_unlabeled": train_loss_unlabeled / train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
+            "val_loss": val_loss / val_total if val_total > 0 else 0.0,
             "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
             "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
             "train_total_labeled": train_total_labeled,
@@ -214,6 +216,8 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
         print(f"Epoch {epoch+1}/{num_epochs} | "
             f"Train NLL: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
             f"Train KL (avg/batch): {train_kl_total/len(train_loader):.4f} | "
+            f"Unlabeled Examples Used: {train_total_unlabeled}/{train_total_unlabeled_seen} | "
+            f"Val Loss: {summary['val_loss']:.4f} | "
             f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
             f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
             f"Val AUC Global: {summary['val_auc_global']:.4f}")
