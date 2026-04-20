@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VariationalLinearLayer(nn.Module):
-    def __init__(self, in_features, out_features, prior_mean=0.0, prior_var=1.0):
+    def __init__(self, in_features, out_features, prior_mean=0.0, prior_var=1.0, rho_init=-2.25):
         super().__init__()
         self.input_dim = in_features
         self.output_dim = out_features
@@ -14,9 +14,11 @@ class VariationalLinearLayer(nn.Module):
         # Initialize variatonal parameters for our layer's weights        
         self.mu_w = nn.Parameter(torch.zeros(out_features, in_features)) # mean values, initialized randomly
         nn.init.kaiming_normal_(self.mu_w)
+        # nn.init.normal_(self.mu_w, mean=0.0, std=0.01)
         self.mu_bias = nn.Parameter(torch.zeros(out_features))
 
-        rho_init = -2.25 # this makes it so that the initial sigma is around 0.1, which is a common choice for initialization
+        # rho_init = -2.25 # this makes it so that the initial sigma is around 0.1, which is a common choice for initialization
+        # print("rho_init lin:", rho_init)
         self.r_w = nn.Parameter(torch.full((out_features, in_features), rho_init)) # unconstrained standard deviation initialized randomly, later we will need to call softplus to get sigma
         self.r_bias = nn.Parameter(torch.full((out_features,), rho_init))
         return
@@ -51,7 +53,7 @@ class VariationalLinearLayer(nn.Module):
 
 
 class VariationalConv2DLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, prior_mean=0.0, prior_var=1.0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, prior_mean=0.0, prior_var=1.0, rho_init=-2.25):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -65,9 +67,11 @@ class VariationalConv2DLayer(nn.Module):
         # Initialize variatonal parameters for our layer's weights        
         self.mu_w = nn.Parameter(torch.zeros(out_channels, in_channels, kernel_size, kernel_size)) # mean values, initialized randomly
         nn.init.kaiming_normal_(self.mu_w)
+        # nn.init.normal_(self.mu_w, mean=0.0, std=0.01)
         self.mu_bias = nn.Parameter(torch.zeros(out_channels))
 
-        rho_init = -2.25 # this makes it so that the initial sigma is around 0.1, which is a common choice for initialization
+        # rho_init = -2.25 # this makes it so that the initial sigma is around 0.1, which is a common choice for initialization
+        # print("rho_init conv:", rho_init)
         self.r_w = nn.Parameter(torch.full((out_channels, in_channels, kernel_size, kernel_size), rho_init)) # unconstrained standard deviation initialized randomly, later we will need to call softplus to get sigma
         self.r_bias = nn.Parameter(torch.full((out_channels,), rho_init))
         return
@@ -98,44 +102,44 @@ class VariationalConv2DLayer(nn.Module):
         return (kl_w + kl_bias) * -1.0
     
 class VariationalCNN(nn.Module):
-    def __init__(self, in_channels, num_classes, prior_mean=0.0, prior_var=1.0):
+    def __init__(self, in_channels, num_classes, prior_mean=0.0, prior_var=1.0, rho_init=-2.25):
         super(VariationalCNN, self).__init__()
 
         self.num_classes = num_classes
 
         self.layer1 = nn.Sequential(
-            VariationalConv2DLayer(in_channels, 16, 3, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalConv2DLayer(in_channels, 16, 3, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.BatchNorm2d(16),
             nn.ReLU())
         
         self.layer2 = nn.Sequential(
-            VariationalConv2DLayer(16, 16, 3, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalConv2DLayer(16, 16, 3, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.BatchNorm2d(16),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         
         self.layer3 = nn.Sequential(
-            VariationalConv2DLayer(16, 64, 3, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalConv2DLayer(16, 64, 3, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.BatchNorm2d(64),
             nn.ReLU())
         
         self.layer4 = nn.Sequential(
-            VariationalConv2DLayer(64, 64, 3, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalConv2DLayer(64, 64, 3, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.BatchNorm2d(64),
             nn.ReLU())
         
         self.layer5 = nn.Sequential(
-            VariationalConv2DLayer(64, 64, 3, padding=1, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalConv2DLayer(64, 64, 3, padding=1, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         
         self.fc = nn.Sequential(
-            VariationalLinearLayer(64 * 4 * 4, 128, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalLinearLayer(64 * 4 * 4, 128, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.ReLU(),
-            VariationalLinearLayer(128, 128, prior_mean=prior_mean, prior_var=prior_var),
+            VariationalLinearLayer(128, 128, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init),
             nn.ReLU(),
-            VariationalLinearLayer(128, num_classes, prior_mean=prior_mean, prior_var=prior_var))
+            VariationalLinearLayer(128, num_classes, prior_mean=prior_mean, prior_var=prior_var, rho_init=rho_init))
         
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4, self.layer5, self.fc]
         
