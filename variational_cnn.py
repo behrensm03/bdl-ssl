@@ -92,6 +92,7 @@ class VariationalConv2DLayer(nn.Module):
         # for 2 gaussians this has closed form solution
         # see kingma and welling appendix B for formula:
         # -KL(q || p) = 0.5 * sum [ 1 + log(sigma_j^2) - mu_j^2 - sigma_j^2 ]
+        # TODO: i think this assumes prior is N(0,1), which it is by default, but should it be?
 
         sigma_w = F.softplus(self.r_w)
         sigma_bias = F.softplus(self.r_bias)
