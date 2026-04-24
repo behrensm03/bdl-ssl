@@ -250,11 +250,24 @@ def evaluate_bayesian(model, test_loader, device, mc_samples=20, n_classes=7):
     print('preds:', preds)
     matrix = confusion_matrix(targets, preds, normalize='true')
 
+    # Per-class NLL to see if the model is taking advantage of class imbalance
+    per_class_nll = []
+    for i in range(n_classes):
+        mask = (targets == i)
+        if mask.sum() > 0:
+            class_nll = -np.mean(np.log(probs[mask, i] + 1e-10))
+            per_class_nll.append(class_nll)
+        else:
+            per_class_nll.append(None)
+    macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
+
     return {
         "macro_auc": macro_auc,
         "global_auc": global_auc,
         "nll": nll,
         "per_class_auc": per_class_auc,
+        "per_class_nll": np.array(per_class_nll),
+        "macro_nll": macro_nll,
         "confusion_matrix": matrix
     }
 
