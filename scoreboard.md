@@ -1,13 +1,5 @@
 # Results of Training Runs
 
-### Hyperparameters, fixed across all runs
-- Architecture: 5 layer CNN (see cnn.py)
-- Optimizer: Adam
-- Epochs: 20 with early stopping, selected by validation mAUC
-- Batch size: 128
-- Loss: cross entropy
-- Alpha (weight of unlabeled loss in SSL implementation): 0.5
-
 ### Baseline 0: Completely supervised CNN (Upper Bound)
 | Val mAUC | Test mAUC | Test gAUC | Date Last Run |
 | ------ | ------ | ----- | ------ | 
@@ -74,7 +66,44 @@
 
 
 ### Baseline 2: Bayesian CNN with Hard Pseudo-Labels
-todo
+
+#### 50% Unlabeled Rate
+| Threshold | Learning Rate | Beta | Val mAUC | Val NLL | Date last run |
+| ------ | ----- | ----- | ----- | ----- | ----- |
+| 0.95 | 0.01 | 0.1 | 0.8774 | 2.1713 | 04/24 |
+| 0.95 | 0.01 | 1.0 | 0.8770 | 1.9242 | 04/24 |
+| 0.95 | 0.01 | 10.0 | 0.8729 | 1.9832 | 04/24 |
+| 0.95 | 0.01 | 100.0 | 0.8626 | 2.2344 | 04/24 |
+| 0.95 | 0.001 | 0.1 | 0.9052 | 1.9737 | 04/24 |
+| 0.95 | 0.001 | 1.0 | 0.9028 | 1.8226 | 04/24 |
+| **0.95** | **0.001** | **10.0** | **0.9036** | **1.8063** | **04/24** |
+| 0.95 | 0.001 | 100.0 | 0.9024 | 1.8653 | 04/24 |
+| 0.95 | 0.0001 | 0.1 | 0.8941 | 1.9332 | 04/24 |
+| 0.95 | 0.0001 | 1.0 | 0.8953 | 1.9315 | 04/24 |
+| 0.95 | 0.0001 | 10.0 | 0.8965 | 1.9271 | 04/24 |
+| 0.95 | 0.0001 | 100.0 | 0.8972 | 1.9131 | 04/24 |
+
+Best Hyperparameters at 50% unlabeled, 0.95 threshold: `lr=0.001, beta=10.0`
+
+| Threshold | Learning Rate | Beta | Test mAUC | Test NLL | Date last run |
+| ---- | ----- | ---- | ---- | ---- | ---- |
+| 0.95 | 0.001 | 10.0 | 0.8955 | 1.8824 | 04/24 |
+
+#### Evaluating different tau values at `lr=0.001, beta=10.0`
+| Threshold | Val mAUC | Val mNLL | Date last run |
+| ---- | ---- | ---- | ---- |
+| 0.5 | 0.9047 | 1.9588 | 04/24 |
+| 0.7 | 0.9062 | 1.9003 | 04/24 |
+| 0.8 | 0.9007 | 1.9083 | 04/24 |
+| 0.9 | 0.9093 | 1.7762 | 04/24 |
+| 0.95 | 0.9036 | 1.8063 | 04/24 |
+
+best is `tau=0.9` by both val mAUC and val mNLL.
+
+#### Evaluation on Test Data
+| Threshold | lr | beta | Test mAUC | Test mNLL | Test per-class NLL | Date |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 0.9 | 0.001 | 10.0 | 0.8988 | 1.9227 | [2.1271377  2.7323937  1.7795302  3.51119  1.1471651  0.25507358  1.9063197 ]
 
 ### Method: Bayesian CNN with Soft Pseudo-Labels
 todo
