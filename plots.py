@@ -21,23 +21,32 @@ def plot_loss_curves(history, unlabeled_rate=0, use_unlabeled=False):
     plt.legend()
     plt.show()
 
-def plot_loss_curves_bcnn(history, unlabeled_rate=0, use_unlabeled=False, show_kl=True):
+def plot_loss_curves_bcnn(history, unlabeled_rate=0, use_unlabeled=False):
     epochs = [h['epoch'] for h in history]
-    train_nll = [h['train_nll_labeled'] for h in history]
+    train_nll = [h['train_nll'] for h in history]
     train_kl = [h['train_kl_avg'] for h in history]
-    val_nll = [h['val_loss'] for h in history]
+    val_nll = [h['val_nll'] for h in history]
     
     plt.figure(figsize=(6,4))
     plt.plot(epochs, train_nll, label='Train NLL (Labeled)')
     plt.plot(epochs, val_nll, label='Val NLL')
-    if show_kl:
-        plt.plot(epochs, train_kl, label='Train KL (scaled, avg/batch)')
     if use_unlabeled:
         train_loss_unlabeled = [h['train_loss_unlabeled'] for h in history]
         plt.plot(epochs, train_loss_unlabeled, label='Train Loss (Unlabeled)')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title(f'BCNN Training Loss Curves (Unlabeled Rate: {unlabeled_rate})')
+    plt.legend()
+    plt.show()
+
+def plot_kl(history):
+    epochs = [h['epoch'] for h in history]
+    train_kl = [h['train_kl_avg'] for h in history]
+    plt.figure(figsize=(6,4))
+    plt.plot(epochs, train_kl, label='Train KL Divergence')
+    plt.xlabel('Epoch')
+    plt.ylabel('KL Divergence')
+    plt.title('Average KL Divergence Over Time')
     plt.legend()
     plt.show()
 

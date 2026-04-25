@@ -20,7 +20,7 @@ def elbo_loss(model, outputs, targets, criterion, beta=1.0):
     loss = nll + kl
     return loss, nll.detach(), kl.detach()
 
-def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, beta=1.0, num_samples=10):
+def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, beta=1.0, num_samples=10, n_classes=7):
     # At each epoch, we need to compute the ELBO
     # First, we need to figure out the set U of onehot vectors from pseudo labels
     # So, run the unlabeled examples through the network S times, and then get the average probability vector for each unlabeled example
@@ -33,7 +33,8 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
     history = []
     for epoch in range(num_epochs):
         model.train()
-        train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen, train_kl_total = 0.0, 0.0, 0, 0, 0, 0.0
+        train_nll, train_loss_unlabeled, train_kl = 0.0, 0.0, 0.0
+        n_labeled, n_unlabeled, n_unlabeled_seen = 0, 0, 0
         # First, the training loop
         for images, labels in tqdm(train_loader):
             # separate the labeled and unlabeled examples
@@ -48,12 +49,12 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
                 targets_labeled = targets_labeled.squeeze().long()
                 loss, nll, kl = elbo_loss(model, labeled_outputs, targets_labeled, criterion, beta=beta)
                 losses.append(loss)
-                train_loss_labeled += nll.item() * inputs_labeled.size(0)
-                train_kl_total += kl.item()
-                train_total_labeled += inputs_labeled.size(0)
+                train_nll += nll.item() * inputs_labeled.size(0)
+                train_kl += kl.item()
+                n_labeled += inputs_labeled.size(0)
             
             if inputs_unlabeled.size(0) != 0:
-                train_total_unlabeled_seen += inputs_unlabeled.size(0)
+                n_unlabeled_seen += inputs_unlabeled.size(0)
                 # First get average prob vector
                 with torch.no_grad():
                     # should this be in eval mode?
@@ -69,7 +70,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
                     loss_unlabeled = criterion(unlabeled_outputs_keep, pseudo_labels_keep)
                     losses.append(alpha * loss_unlabeled)
                     train_loss_unlabeled += loss_unlabeled.item() * unlabeled_outputs_keep.size(0)
-                    train_total_unlabeled += unlabeled_outputs_keep.size(0)
+                    n_unlabeled += unlabeled_outputs_keep.size(0)
 
             if len(losses) > 0:
                 optimizer.zero_grad()
@@ -78,7 +79,7 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
 
         # Then the validation loop
         model.eval()
-        val_loss, val_total = 0.0, 0
+        val_nll, val_total = 0.0, 0
         val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in tqdm(val_loader):
@@ -96,35 +97,51 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
                 val_total += images.size(0)
 
                 nll_val = -torch.log(mean_probs[torch.arange(len(targets)), targets] + 1e-8).mean()
-                val_loss += nll_val.item() * images.size(0)
+                val_nll += nll_val.item() * images.size(0)
 
                 # store predictions and targets for auc
                 val_probs.append(mean_probs.cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
+        
+        val_probs_np = np.concatenate(val_probs)
+        val_targets_np = np.concatenate(val_targets)
+
+        # per class NLL on val
+        per_class_nll = []
+        for i in range(n_classes):
+            mask = (val_targets_np == i)
+            if mask.sum() > 0:
+                class_nll = -np.mean(np.log(val_probs_np[mask, i] + 1e-8))
+                per_class_nll.append(class_nll)
+            else:
+                per_class_nll.append(None)
+
+        val_macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
 
         summary = {
             "epoch": epoch+1,
-            "train_nll_labeled": train_loss_labeled / train_total_labeled if train_total_labeled > 0 else 0.0,
-            "train_loss_unlabeled": train_loss_unlabeled / train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
-            "val_loss": val_loss / val_total if val_total > 0 else 0.0,
-            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
-            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
-            "train_total_labeled": train_total_labeled,
-            "train_total_unlabeled": train_total_unlabeled,
-            "train_total_unlabeled_seen": train_total_unlabeled_seen,
-            "val_total": val_total,
+            "train_nll": train_nll / n_labeled if n_labeled > 0 else 0.0,
+            "train_loss_unlabeled": train_loss_unlabeled / n_unlabeled if n_unlabeled > 0 else 0.0,
+            "train_kl_avg": train_kl / len(train_loader) if len(train_loader) > 0 else 0.0,
+            "n_labeled": n_labeled,
+            "n_unlabeled": n_unlabeled,
+            "n_unlabeled_seen": n_unlabeled_seen,
+            "val_nll": val_nll / val_total if val_total > 0 else 0.0,
+            "val_macro_nll": val_macro_nll,
+            "val_per_class_nll": per_class_nll,
+            "val_auc_macro": roc_auc_score(val_targets_np, val_probs_np, multi_class='ovr', average='macro'),
+            "val_auc_global": roc_auc_score(val_targets_np, val_probs_np, multi_class='ovr', average='micro'),
             "model_state": {k: v.clone() for k,v in model.state_dict().items()},
-            "train_kl_total": train_kl_total,
-            "train_kl_avg": train_kl_total / len(train_loader) if len(train_loader) > 0 else 0.0,
         }
 
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
-            f"Train NLL: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
-            f"Train KL (avg/batch): {train_kl_total/len(train_loader):.4f} | "
-            f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
-            f"Unlabeled Examples Used: {train_total_unlabeled}/{train_total_unlabeled_seen} | "
-            f"Val Loss: {summary['val_loss']:.4f} | "
+            f"Train NLL: {train_nll/n_labeled if n_labeled > 0 else 0.0:.4f} | "
+            f"Train KL (avg/batch): {train_kl/len(train_loader):.4f} | "
+            f"Train Loss Unlabeled: {train_loss_unlabeled/n_unlabeled if n_unlabeled > 0 else 0.0:.4f} | "
+            f"Unlabeled Examples Used: {n_unlabeled}/{n_unlabeled_seen} | "
+            f"Val NLL: {summary['val_nll']:.4f} | "
+            f"Val Macro NLL: {summary['val_macro_nll']:.4f} | "
             f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
             f"Val AUC Global: {summary['val_auc_global']:.4f}")
         

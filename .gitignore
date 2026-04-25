@@ -1,3 +1,5 @@
+results/bcnn-baseline/*.pkl
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
