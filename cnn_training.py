@@ -192,7 +192,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
 
     return history
 
-def evaluate(model, test_loader):
+def evaluate(model, test_loader, n_classes=7):
     model.eval()
     probs, targets = [], []
     with torch.no_grad():
@@ -200,7 +200,27 @@ def evaluate(model, test_loader):
             outputs = model(images)
             probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
             targets.append(labels.squeeze().cpu().numpy())
-    return roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='macro'), roc_auc_score(np.concatenate(targets), np.concatenate(probs), multi_class='ovr', average='micro')
+
+    probs = np.concatenate(probs)
+    targets = np.concatenate(targets)
+
+    per_class_nll = []
+    for i in range(n_classes):
+        mask = (targets == i)
+        if mask.sum() > 0:
+            class_nll = -np.mean(np.log(probs[mask, i] + 1e-10))
+            per_class_nll.append(class_nll)
+        else:
+            per_class_nll.append(None)
+
+    macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
+
+    return {
+        "macro_auc": roc_auc_score(targets, probs, multi_class='ovr', average='macro'),
+        "global_auc": roc_auc_score(targets, probs, multi_class='ovr', average='micro'),
+        "macro_nll": macro_nll,
+        "per_class_nll": np.array(per_class_nll),
+    }
 
 def evaluate_perclass(model, test_loader, n_classes=7):
     model.eval()

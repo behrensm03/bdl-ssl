@@ -21,7 +21,7 @@ def plot_loss_curves(history, unlabeled_rate=0, use_unlabeled=False):
     plt.legend()
     plt.show()
 
-def plot_loss_curves_bcnn(history, unlabeled_rate=0, use_unlabeled=False):
+def plot_loss_curves_bcnn(history, unlabeled_rate=0, use_unlabeled=False, show_kl=True):
     epochs = [h['epoch'] for h in history]
     train_nll = [h['train_nll_labeled'] for h in history]
     train_kl = [h['train_kl_avg'] for h in history]
@@ -30,7 +30,8 @@ def plot_loss_curves_bcnn(history, unlabeled_rate=0, use_unlabeled=False):
     plt.figure(figsize=(6,4))
     plt.plot(epochs, train_nll, label='Train NLL (Labeled)')
     plt.plot(epochs, val_nll, label='Val NLL')
-    plt.plot(epochs, train_kl, label='Train KL (scaled, avg/batch)')
+    if show_kl:
+        plt.plot(epochs, train_kl, label='Train KL (scaled, avg/batch)')
     if use_unlabeled:
         train_loss_unlabeled = [h['train_loss_unlabeled'] for h in history]
         plt.plot(epochs, train_loss_unlabeled, label='Train Loss (Unlabeled)')
