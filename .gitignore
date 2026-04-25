@@ -1,6 +1,4 @@
-results/bcnn-baseline/histories_50_finetuning.pkl
-results/bcnn-baseline/tau_histories_50.pkl
-
+results/bcnn-baseline/*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
