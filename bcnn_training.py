@@ -20,7 +20,7 @@ def elbo_loss(model, outputs, targets, criterion, beta=1.0):
     loss = nll + kl
     return loss, nll.detach(), kl.detach()
 
-def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, beta=1.0, num_samples=10, n_classes=7):
+def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, beta=1.0, num_samples=10, n_classes=7, device='cpu'):
     # At each epoch, we need to compute the ELBO
     # First, we need to figure out the set U of onehot vectors from pseudo labels
     # So, run the unlabeled examples through the network S times, and then get the average probability vector for each unlabeled example
@@ -37,6 +37,8 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
         n_labeled, n_unlabeled, n_unlabeled_seen = 0, 0, 0
         # First, the training loop
         for images, labels in tqdm(train_loader):
+            images = images.to(device)
+            labels = labels.to(device)
             # separate the labeled and unlabeled examples
             label_mask = (labels != -1).squeeze()
             unlabeled_mask = (labels == -1).squeeze()
@@ -83,7 +85,8 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
         val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in tqdm(val_loader):
-                targets = labels.squeeze().long()
+                images = images.to(device)
+                targets = labels.squeeze().long().to(device)
 
                 # Monte Carlo predictive average
                 mc_probs = []
@@ -264,7 +267,6 @@ def evaluate_bayesian(model, test_loader, device, mc_samples=20, n_classes=7):
     per_class_auc = [roc_auc_score(targets_binarized[: , i], probs[:, i]) for i in range(n_classes)]
 
     preds = np.argmax(probs, axis=1)
-    print('preds:', preds)
     matrix = confusion_matrix(targets, preds, normalize='true')
 
     # Per-class NLL to see if the model is taking advantage of class imbalance
