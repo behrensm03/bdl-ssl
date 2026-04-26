@@ -141,28 +141,39 @@ Best results on `tau=0.5, beta=100.0`.
 | 0.001 | 100.0 | 0.5 | 0.8949 | 2.0940 | [1.6053411  2.3043818  1.5322623  4.0661883  2.8186407  0.15277164  2.1782024 ] | 04/25 |
 
 
+#### 90% Unlabeled Rate at `lr=0.001`
+| Threshold | Beta | Val mAUC | Val mNLL | Date last run |
+| ------ | ----- | ----- | ----- | ----- | 
+| 0.5 | 0.1 | 0.8649 | 2.8009 | 04/25 |
+| 0.7 | 0.1 | 0.8579 | 2.7350 | 04/25 |
+| 0.8 | 0.1 | 0.8684 | 2.4130 | 04/25 |
+| 0.9 | 0.1 | 0.8614 | 2.2323 | 04/25 |
+| 0.95 | 0.1 | 0.8662 | 2.1444 | 04/25 |
+| 0.5 | 1.0 | 0.8598 | 2.6296 | 04/25 |
+| 0.7 | 1.0 | 0.8624 | 2.1602 | 04/25 |
+| 0.8 | 1.0 | 0.8580 | 2.3269 | 04/25 |
+| 0.9 | 1.0 | 0.8593 | 2.1652 | 04/25 |
+| 0.95 | 1.0 | 0.8566 | 2.2768 | 04/25 |
+| 0.5 | 10.0 | 0.8687 | 2.2546 | 04/25 |
+| 0.7 | 10.0 | 0.8639 | 2.0428 | 04/25 |
+| **0.8** | **10.0** | **0.8725** | **2.3551** | **04/25** |
+| 0.9 | 10.0 | 0.8661 | 2.2685 | 04/25 |
+| 0.95 | 10.0 | 0.8558 | 2.3088 | 04/25 |
+| 0.5 | 100.0 | 0.8567 | 2.8796 | 04/25 |
+| 0.7 | 100.0 | 0.8606 | 2.2105 | 04/25 |
+| 0.8 | 100.0 | 0.8646 | 1.9281 | 04/25 |
+| 0.9 | 100.0 | 0.8667 | 2.2170 | 04/25 |
+| 0.95 | 100.0 | 0.8619 | 2.3583 | 04/25 |
+
+Best results on `tau=0.8, beta=10.0`
+
+#### Evaluation on Test Data
+| lr | beta | tau | Test mAUC | Test mNLL | Test per-class NLL | Date |
+| --- | --- | --- | --- | --- | ---- | ---- |
+| 0.001 | 0.8 | 10.0 | 0.8434 | 2.4392 | [2.340424   1.8451033  1.2044142  4.808531   2.1484022  0.31640455  4.410989] | 04/25 |
+
 
 ### Method: Bayesian CNN with Soft Pseudo-Labels
 todo
 
 
-## Experiment: Do we need burn-in iterations?
-Testing on non bayesian CNN
-
-without burn-in: 
-Best Epoch: 9 | Val AUC: 0.8997 | Val Acc: 0.7368 
-Test AUC: 0.8893
-
-with 1 burn-in epoch:
-Best Epoch: 17 | Val AUC: 0.8978 | Val Acc: 0.7368
-Test AUC: 0.8843
-
-with 3 burn-in epochs:
-Best Epoch: 8 | Val AUC: 0.9033 | Val Acc: 0.7129
-Test AUC: 0.8941
-
-with 5 burn-in epochs:
-Best Epoch: 7 | Val AUC: 0.9071 | Val Acc: 0.7049
-Test AUC: 0.8792
-
-result: somewhat inconclusive - performance decreases slightly from 0 to 1 burn-in epoch (though only marginal) and then increases marginally at 3 burn-in epochs, then decreases again. could either set it to 3 burn-in epochs or note small difference and abandon burn-in approach.
