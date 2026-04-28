@@ -150,7 +150,6 @@ def train_loop_bcnn_hard_pseudo_label(model, train_loader, val_loader, criterion
         
     return history
 
-
 def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, alpha=0.5, beta=1.0, num_samples=10):
     # similar to hard pl loop but using the average prob vector as the pseudo label
     history = []
@@ -243,7 +242,6 @@ def train_loop_bcnn_soft_pseudo_label(model, train_loader, val_loader, criterion
             f"Val AUC Global: {summary['val_auc_global']:.4f}")
         
     return history
-
 
 @torch.no_grad()
 def evaluate_bayesian(model, test_loader, device, mc_samples=20, n_classes=7):
