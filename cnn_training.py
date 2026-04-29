@@ -44,14 +44,15 @@ def get_semi_supervised_labels(dataset, unlabeled_rate, seed=42, n_classes=7):
         print(f'Class {c}: {labeled}/{total} labeled, {unlabeled} unlabeled')
     return semi_supervised_labels
 
-def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, num_epochs):
+def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, num_epochs, num_classes=7, device='cpu'):
     # This is the training loop utilizing only labeled examples
     history = []
     for epoch in range(num_epochs):
         # train_correct, train_total, test_correct, test_total = 0, 0, 0, 0
         model.train()
-        train_loss, train_total = 0.0, 0
-        for images, labels in tqdm(train_loader):
+        train_nll, n_labeled = 0.0, 0
+        for images, labels in tqdm(train_loader, leave=False):
+            images, labels = images.to(device), labels.to(device)
             label_mask = (labels != -1).squeeze()
             if label_mask.sum() == 0:
                 continue # skip batches with no labeled examples
@@ -66,55 +67,70 @@ def train_loop_labeled(model, train_loader, val_loader, criterion, optimizer, nu
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item() * inputs.size(0) # need to multiply by batch size because loss is averaged over the batch, and batches are different sizes because of unlabeled examples
-            train_total += inputs.size(0)
+            train_nll += loss.item() * inputs.size(0) # need to multiply by batch size because loss is averaged over the batch, and batches are different sizes because of unlabeled examples
+            n_labeled += inputs.size(0)
         
         # evaluate on validation set
         model.eval()
-        val_loss, val_total = 0.0, 0
+        val_nll, val_total = 0.0, 0
         val_probs, val_targets = [], []
         with torch.no_grad():
             for images, labels in val_loader:
+                images, targets = images.to(device), labels.to(device).squeeze().long()
                 outputs = model(images)
-                targets = labels.squeeze().long()
                 loss = criterion(outputs, targets)
-                val_loss += loss.item() * images.size(0)
+                val_nll += loss.item() * images.size(0)
 
                 val_total += targets.size(0)
 
                 val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
 
+        val_probs_np = np.concatenate(val_probs)
+        val_targets_np = np.concatenate(val_targets)
+
+        per_class_nll = []
+        for i in range(num_classes):
+            mask = (val_targets_np == i)
+            if mask.sum() > 0:
+                class_nll = -np.mean(np.log(val_probs_np[mask, i] + 1e-8))
+                per_class_nll.append(class_nll)
+            else:
+                per_class_nll.append(None)
+        val_macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
+
         summary = {
             "epoch": epoch+1,
-            "train_loss_labeled": train_loss/train_total,
-            "val_loss": val_loss/val_total,
-            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
-            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
-            'train_total': train_total,
-            'val_total': val_total,
+            "train_nll": train_nll / n_labeled if n_labeled > 0 else 0.0,
+            "n_labeled": n_labeled,
+            "val_nll": val_nll / val_total if val_total > 0 else 0.0,
+            "val_macro_nll": val_macro_nll,
+            "val_per_class_nll": per_class_nll,
+            "val_auc_macro": roc_auc_score(val_targets_np, val_probs_np, multi_class='ovr', average='macro'),
             'model_state': {k: v.clone() for k,v in model.state_dict().items()}
         }
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
-              f"Train Loss: {train_loss/train_total:.4f} | "
-              f"Val Loss: {val_loss/val_total:.4f} | "
-              f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
-              f"Val AUC Global: {summary['val_auc_global']:.4f}")
+              f"Train NLL: {summary['train_nll']:.4f} | "
+              f"Val NLL: {summary['val_nll']:.4f} | "
+              f"Val Macro NLL: {summary['val_macro_nll']:.4f} | "
+              f"Val mAUC: {summary['val_auc_macro']:.4f}")
         
     return history
 
-def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5):
+def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, optimizer, num_epochs, threshold=0.95, alpha=0.5, num_classes=7, device='cpu'):
     # This is the training loop utilizing all examples, with threshold-based one-hot pseudo labeling for the unlabeled examples
     history = []
     for epoch in range(num_epochs):
         model.train()
-        train_loss_labeled, train_loss_unlabeled, train_total_labeled, train_total_unlabeled, train_total_unlabeled_seen = 0.0, 0.0, 0, 0, 0
+        train_nll, train_loss_unlabeled = 0.0, 0.0
+        n_labeled, n_unlabeled, n_unlabeled_seen = 0, 0, 0
         # First the training loop
-        for images, labels in tqdm(train_loader):
+        for images, labels in tqdm(train_loader, leave=False):
+            images, labels = images.to(device), labels.to(device)
             # separate the labeled and unlabeled examples
-            label_mask = labels != -1
-            unlabeled_mask = labels == -1
+            label_mask = (labels != -1).squeeze()
+            unlabeled_mask = (labels == -1).squeeze()
             inputs_labeled, inputs_unlabeled = images[label_mask], images[unlabeled_mask]
             targets_labeled = labels[label_mask]
 
@@ -124,11 +140,11 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                 targets_labeled = targets_labeled.squeeze().long()
                 loss_labeled = criterion(labeled_outputs, targets_labeled)
                 losses.append(loss_labeled)
-                train_loss_labeled += loss_labeled.item() * inputs_labeled.size(0)
-                train_total_labeled += inputs_labeled.size(0)
+                train_nll += loss_labeled.item() * inputs_labeled.size(0)
+                n_labeled += inputs_labeled.size(0)
 
             if inputs_unlabeled.size(0) != 0:
-                train_total_unlabeled_seen += inputs_unlabeled.size(0)
+                n_unlabeled_seen += inputs_unlabeled.size(0)
                 unlabeled_outputs = model(inputs_unlabeled)
                 # now use the threshold to generate pseudo-labels from the unlabeled outputs
                 probs_unlabeled = torch.softmax(unlabeled_outputs, dim=1)
@@ -143,7 +159,7 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
                     # combine the losses in a weighted manner
                     losses.append(alpha * loss_unlabeled)
                     train_loss_unlabeled += loss_unlabeled.item() * unlabeled_outputs_keep.size(0)
-                    train_total_unlabeled += unlabeled_outputs_keep.size(0)
+                    n_unlabeled += unlabeled_outputs_keep.size(0)
 
             if len(losses) > 0:
                 optimizer.zero_grad()
@@ -152,51 +168,65 @@ def train_loop_hard_pseudo_label(model, train_loader, val_loader, criterion, opt
 
         # Then the validation loop
         model.eval()
-        val_loss, val_total = 0.0, 0
+        val_nll, val_total = 0.0, 0
         val_probs, val_targets = [], []
         with torch.no_grad():
-            for images, labels in val_loader:
+            for images, labels in tqdm(val_loader, leave=False):
                 # We only have labeled examples in validation and test data
+                images, targets = images.to(device), labels.to(device).squeeze().long()
                 outputs = model(images)
-                targets = labels.squeeze().long()
                 loss = criterion(outputs, targets)
-                val_loss += loss.item() * images.size(0)
-                _, predictions = torch.max(outputs.data, 1)
+                val_nll += loss.item() * images.size(0)
                 val_total += targets.size(0)
 
                 # store predictions and targets for auc
                 val_probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
                 val_targets.append(targets.cpu().numpy())
+        
+        val_probs_np = np.concatenate(val_probs)
+        val_targets_np = np.concatenate(val_targets)
+
+        per_class_nll = []
+        for i in range(num_classes):
+            mask = (val_targets_np == i)
+            if mask.sum() > 0:
+                class_nll = -np.mean(np.log(val_probs_np[mask, i] + 1e-8))
+                per_class_nll.append(class_nll)
+            else:
+                per_class_nll.append(None)
+        val_macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
 
         summary = {
             "epoch": epoch+1,
-            "train_loss_labeled": train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0,
-            "train_loss_unlabeled": train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0,
-            "val_loss": val_loss/val_total,
-            "val_auc_macro": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='macro'),
-            "val_auc_global": roc_auc_score(np.concatenate(val_targets), np.concatenate(val_probs), multi_class='ovr', average='micro'),
-            'train_total_labeled': train_total_labeled,
-            'train_total_unlabeled': train_total_unlabeled,
-            'train_total_unlabeled_seen': train_total_unlabeled_seen,
-            'val_total': val_total,
+            "train_nll": train_nll / n_labeled if n_labeled > 0 else 0.0,
+            "train_loss_unlabeled": train_loss_unlabeled / n_unlabeled if n_unlabeled > 0 else 0.0,
+            "n_labeled": n_labeled,
+            "n_unlabeled": n_unlabeled,
+            "n_unlabeled_seen": n_unlabeled_seen,
+            "val_nll": val_nll / val_total if val_total > 0 else 0.0,
+            "val_macro_nll": val_macro_nll,
+            "val_per_class_nll": per_class_nll,
+            "val_auc_macro": roc_auc_score(val_targets_np, val_probs_np, multi_class='ovr', average='macro'),
             'model_state': {k: v.clone() for k,v in model.state_dict().items()},
         }
 
         history.append(summary)
         print(f"Epoch {epoch+1}/{num_epochs} | "
-                f"Train Loss Labeled: {train_loss_labeled/train_total_labeled if train_total_labeled > 0 else 0.0:.4f} | "
-                f"Train Loss Unlabeled: {train_loss_unlabeled/train_total_unlabeled if train_total_unlabeled > 0 else 0.0:.4f} | "
-                f"Val Loss: {val_loss/val_total:.4f} | "
-                f"Val AUC Macro: {summary['val_auc_macro']:.4f} | "
-                f"Val AUC Global: {summary['val_auc_global']:.4f}")
+              f"NLL: {summary['train_nll']:.4f} | "
+              f"Unlabeled Loss: {summary['train_loss_unlabeled']:.4f} | "
+              f"Unlabeled: {n_unlabeled}/{n_unlabeled_seen} | "
+              f"Val NLL: {summary['val_nll']:.4f} | "
+              f"Val Macro NLL: {summary['val_macro_nll']:.4f} | "
+              f"Val mAUC: {summary['val_auc_macro']:.4f}")
 
     return history
 
-def evaluate(model, test_loader, n_classes=7):
+def evaluate(model, test_loader, n_classes=7, device='cpu'):
     model.eval()
     probs, targets = [], []
     with torch.no_grad():
-        for images, labels in test_loader:
+        for images, labels in tqdm(test_loader):
+            images = images.to(device)
             outputs = model(images)
             probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
             targets.append(labels.squeeze().cpu().numpy())
@@ -215,27 +245,20 @@ def evaluate(model, test_loader, n_classes=7):
 
     macro_nll = np.mean([nll for nll in per_class_nll if nll is not None])
 
-    return {
-        "macro_auc": roc_auc_score(targets, probs, multi_class='ovr', average='macro'),
-        "global_auc": roc_auc_score(targets, probs, multi_class='ovr', average='micro'),
-        "macro_nll": macro_nll,
-        "per_class_nll": np.array(per_class_nll),
-    }
+    preds = np.argmax(probs, axis=1)
+    matrix = confusion_matrix(targets, preds, normalize='true')
 
-def evaluate_perclass(model, test_loader, n_classes=7):
-    model.eval()
-    probs, targets = [], []
-    with torch.no_grad():
-        for images, labels in test_loader:
-            outputs = model(images)
-            probs.append(torch.softmax(outputs, dim=1).cpu().numpy())
-            targets.append(labels.squeeze().cpu().numpy())
-    probs = np.concatenate(probs)
-    targets = np.concatenate(targets)
-    
     targets_binarized = label_binarize(targets, classes=np.arange(n_classes))
     per_class_auc = [roc_auc_score(targets_binarized[:, i], probs[:, i]) for i in range(n_classes)]
 
-    matrix = confusion_matrix(targets, np.argmax(probs, axis=1), normalize='true')
+    nll = -np.mean(np.log(probs[np.arange(len(targets)), targets] + 1e-10))  # add small value for numerical stability
 
-    return per_class_auc, matrix
+    return {
+        "macro_auc": roc_auc_score(targets, probs, multi_class='ovr', average='macro'),
+        "nll": nll,
+        "macro_nll": macro_nll,
+        "per_class_nll": np.array(per_class_nll),
+        "per_class_auc": np.array(per_class_auc),
+        "confusion_matrix": matrix
+    }
+
