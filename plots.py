@@ -1,6 +1,7 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 sns.set_style("whitegrid")
 sns.set_context("notebook", font_scale=1.25)
 
@@ -91,3 +92,22 @@ def plot_percent_unlabeled_used(history):
     plt.ylabel('Percent')
     plt.title('Percent of Unlabeled Examples Used Over Time')
     plt.show()
+
+def aggregate_seed_results(results_by_seed):
+    seeds = list(results_by_seed.keys())
+    keys = results_by_seed[seeds[0]].keys()
+    aggregated = {}
+    for key in keys:
+        values = [results_by_seed[seed][key] for seed in seeds]
+        aggregated[f"{key}_mean"] = np.mean(values, axis=0)
+        aggregated[f"{key}_std"] = np.std(values, axis=0)
+    return aggregated
+
+def print_aggregate_test_results(results_by_seed):
+    avg_test_results = aggregate_seed_results(results_by_seed)
+    print(f"Test mAUC: {avg_test_results['macro_auc_mean']:.4f} ± {avg_test_results['macro_auc_std']:.4f}")
+    print(f"Test mNLL: {avg_test_results['macro_nll_mean']:.4f} ± {avg_test_results['macro_nll_std']:.4f}")
+    per_class_mean = avg_test_results['per_class_nll_mean']
+    per_class_std = avg_test_results['per_class_nll_std']
+    per_class_str = '  '.join([f"{m:.4f}±{s:.4f}" for m, s in zip(per_class_mean, per_class_std)])
+    print(f"Test per-class NLL: [{per_class_str}]")

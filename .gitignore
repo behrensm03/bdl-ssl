@@ -1,5 +1,6 @@
 results/bcnn-baseline/*.pkl
 results/upgrade/*.pkl
+results/cnn-baseline/*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
