@@ -109,5 +109,10 @@ def print_aggregate_test_results(results_by_seed):
     print(f"Test mNLL: {avg_test_results['macro_nll_mean']:.4f} ± {avg_test_results['macro_nll_std']:.4f}")
     per_class_mean = avg_test_results['per_class_nll_mean']
     per_class_std = avg_test_results['per_class_nll_std']
-    per_class_str = '  '.join([f"{m:.4f}±{s:.4f}" for m, s in zip(per_class_mean, per_class_std)])
+    per_class_str = '  '.join([f"{m:.4f} ± {s:.4f}" for m, s in zip(per_class_mean, per_class_std)])
     print(f"Test per-class NLL: [{per_class_str}]")
+    per_class_auc_mean = avg_test_results['per_class_auc_mean']
+    per_class_auc_std = avg_test_results['per_class_auc_std']
+    per_class_auc_str = '  '.join([f"{m:.4f} ± {s:.4f}" for m, s in zip(per_class_auc_mean, per_class_auc_std)])
+    print(f"Test per-class AUC: [{per_class_auc_str}]")
+
