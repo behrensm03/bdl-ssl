@@ -1,4 +1,4 @@
-results/bcnn-baseline/*.pkl
+results/bcnn-baseline/
 results/upgrade/*.pkl
 results/cnn-baseline/*.pkl
 
